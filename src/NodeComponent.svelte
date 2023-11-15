@@ -6,6 +6,8 @@
 
 <div  class="node" style="left: {node.x + svgTransform.x}px; top: {node.y + svgTransform.y}px;" 
     on:mousedown={(event) => handleMouseDown(event, node)}
+    role="button"
+    tabindex="0"
     >
     <div class="prompt">{node.branchNumber}</div>
     <div class="prompt">{node.prompt}</div>

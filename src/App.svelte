@@ -1,49 +1,162 @@
 <script>
     import { onMount, onDestroy } from 'svelte';
     import * as d3 from 'd3';
-    import { writable } from 'svelte/store';
+    import { get, writable } from 'svelte/store';
     import NodeComponent from './NodeComponent.svelte';
+    import Conversation from './Conversation.svelte';
     import { init, text } from 'svelte/internal';
-
-
+    import {conversation, selectedNode, reactiveNodes, reactiveLinks, convFormData} from './store'
+    
     
 
-    let conv = [
-        { nodeId: 0, originNodeId: 0,  prompt: "Can you explain PCA?", answer: "PCA is Principle Component Analysis..." },
-        { nodeId: 1, originNodeId: 0,  prompt: "What is the covariance matrix?", answer: "The covariance matrix is a square matrix..." },
-        { nodeId: 2, originNodeId: 1,  prompt: "What is the covariance matrix?", answer: "The covariance matrix is a square matrix..." },
-        { nodeId: 3, originNodeId: 2,  prompt: "How do you calculate the covariance matrix?", answer: "It is done by comparing how two variables..." },
-        { nodeId: 4, originNodeId: 1,  prompt: "Can you explain eigen vectors and eigen values?", answer: "Eigen vectors and eigen values are vectors..." },
-        { nodeId: 5, originNodeId: 4,  prompt: "How do we find the eigen values and eigen vectors?", answer: "We can calculate the eigen vectors and eigen values by solving Av = (lambda)v..." },
-        { nodeId: 7, originNodeId: 2,  prompt: "Can you give a visual explanation of the covariant matrix", answer: "Here is a visual expiation lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum " },
-    ];
 
 
-    // let conv = [
-    //     { nodeId: 0, originNodeId: 0,  prompt: "Can you explain PCA?", answer: "PCA is Principle Component Analysis..." },
-    //     { nodeId: 1, originNodeId: 0,  prompt: "What is the covariance matrix?", answer: "The covariance matrix is a square matrix..." },
-    //     { nodeId: 2, originNodeId: 2,  prompt: "How do we find the eigen values and eigen vectors?", answer: "We can calculate the eigen vectors and eigen values by solving Av = (lambda)v..." },
-    //     { nodeId: 3, originNodeId: 2,  prompt: "Can you give a visual explanation of the covariant matrix", answer: "Here is a visual expiation lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum lorem ipsum " },
-    // ];
+    let graphData = createGraphData($conversation);
 
-    let newConvData = { nodeId: 8, originNodeId: 7, prompt: 'Is this working', answer: 'Yes it is' };
+    let nodesData = graphData.nodes;
+    let linksData = graphData.links;
 
+    reactiveNodes.set(nodesData);
+    reactiveLinks.set(linksData);
+
+
+
+    let simulation;
+    let isDragging = false;
+    let draggedNode = null;
+
+
+    let isPanning = false;
+    let panStart = { x: 0, y: 0 };
+    let svgTransform = { x: 0, y: 0 };
+
+    function startPanning(event) {
+        if (event.target.tagName !== 'svg') return; // Ignore if not clicking on SVG background
+        isPanning = true;
+        panStart = { x: event.clientX, y: event.clientY };
+    }
+
+    function doPanning(event) {
+        if (!isPanning) return;
+        let dx = event.clientX - panStart.x;
+        let dy = event.clientY - panStart.y;
+        panStart = { x: event.clientX, y: event.clientY };
+        svgTransform.x += dx;
+        svgTransform.y += dy;
+    }
+
+    function endPanning() {
+        isPanning = false;
+    }
+
+
+
+
+
+    onMount(() => {
+
+        // get current width and height of graph-view div
+        let svgWidth = document.getElementById('graph-view').clientWidth;
+        let svgHeight = document.getElementById('graph-view').clientHeight;
+        window.addEventListener("resize", () => {
+            svgWidth = document.getElementById('graph-view').clientWidth;
+            svgHeight = document.getElementById('graph-view').clientHeight;
+            // restart simulation
+            simulation.force('center', d3.forceCenter(svgWidth / 2, svgHeight / 2));
+            simulation.alpha(1).restart();
+
+        });
+
+        // Add event listeners for panning
+        const svgElement = document.querySelector('svg');
+        svgElement.addEventListener('mousedown', startPanning);
+        window.addEventListener('mousemove', doPanning);
+        window.addEventListener('mouseup', endPanning);
+
+        // get the number of levels in the graph
+        const numberOfLevels = Math.max(...nodesData.map(node => node.level)) + 1;
+
+        simulation = d3.forceSimulation(nodesData)
+            .force('link', d3.forceLink(linksData).id(d => d.id).distance(d => 200))
+            .force('charge', d3.forceManyBody().strength(-1000))
+            .force('collision', d3.forceCollide().radius(100))
+            // .force('center', d3.forceCenter(width / 2, height / 2) * 0.1) 
+            .force('x', d3.forceX().strength(0.1).x(d => {
+                const level = d.level;
+                const levelWidth = svgWidth / numberOfLevels;
+                return levelWidth * level;
+            }))
+
+        simulation.on('tick', () => {
+            reactiveNodes.set(nodesData);
+            reactiveLinks.set(linksData);
+        });
+
+        window.addEventListener('mousemove', handleMouseMove);
+        window.addEventListener('mouseup', handleMouseUp);
+
+
+        conversation.subscribe(updateGraph);
+    });
+
+    function handleMouseDown(event, node) {
+        event.preventDefault();
+        isDragging = true;
+        draggedNode = node;
+        simulation.alphaTarget(0.3).restart();
+        node.fx = node.x;
+        node.fy = node.y;
+        nodeClicked(node)
+    }
+
+    function handleMouseMove(event) {
+        if (!isDragging || !draggedNode) return;
+        draggedNode.fx += event.movementX;
+        draggedNode.fy += event.movementY;
+    }
+
+    function handleMouseUp() {
+        if (!isDragging || !draggedNode) return;
+        isDragging = false;
+        simulation.alphaTarget(0);
+        draggedNode.fx = null;
+        draggedNode.fy = null;
+        draggedNode = null;
+    }
+
+    function nodeClicked(d) {
+
+        // get the max id + 1
+
+        let maxId = Math.max(...($conversation.map(o => o.nodeId)), 0) + 1;
+
+        convFormData.set({
+            nodeId: maxId,
+            originNodeId: d.id,
+            prompt: d.prompt,
+            answer: d.answer
+        });
+        selectedNode.set(d);
+
+    }
 
     // Function to handle the submission of new conversation data
     function addNewConvData() {
-        conv.push({ ...newConvData });
-        updateGraph();
+        // add new conversation data to conversation array
+        conversation.addConvEntry($convFormData);
     }
+
 
     // Function to update the graph with new conversation data
     function updateGraph() {
-        const updatedGraphData = createGraphData(conv);
+        const updatedGraphData = createGraphData($conversation);
         nodesData = updatedGraphData.nodes;
         linksData = updatedGraphData.links;
         simulation.nodes(nodesData);
         simulation.force("link").links(linksData);
         simulation.alpha(1).restart();
     }
+
 
     function createGraphData(conversation) {
             const nodes = [];
@@ -55,13 +168,13 @@
             for (const { nodeId, originNodeId, prompt, answer } of conversation) {
                 // Add node if it's not already in the set
                 if (!nodeSet.has(nodeId)) {
-                    nodes.push({ id: nodeId, prompt, answer });
+                    nodes.push({ id: nodeId, prompt, answer, level: 0, branchNumber: 0 });
                     nodeSet.add(nodeId);
                 }
 
                 // Add link
                 if (originNodeId != nodeId) {
-                    links.push({ source: originNodeId, target: nodeId });
+                    links.push({ source: originNodeId, target: nodeId, branchNumber: 0 });
                 }
             }
 
@@ -99,128 +212,7 @@
                 }
             }
 
-            console.log(nodes, links)
-
             return { nodes, links };
-    }
-
-    let graphData = createGraphData(conv);
-    let nodesData = graphData.nodes;
-    let linksData = graphData.links;
-
-    const nodes = writable(nodesData);
-    const links = writable(linksData);
-
-    let simulation;
-    let isDragging = false;
-    let draggedNode = null;
-
-
-    let isPanning = false;
-    let panStart = { x: 0, y: 0 };
-    let svgTransform = { x: 0, y: 0 };
-
-    function startPanning(event) {
-        if (event.target.tagName !== 'svg') return; // Ignore if not clicking on SVG background
-        isPanning = true;
-        panStart = { x: event.clientX, y: event.clientY };
-    }
-
-    function doPanning(event) {
-        if (!isPanning) return;
-        let dx = event.clientX - panStart.x;
-        let dy = event.clientY - panStart.y;
-        panStart = { x: event.clientX, y: event.clientY };
-        svgTransform.x += dx;
-        svgTransform.y += dy;
-    }
-
-    function endPanning() {
-        isPanning = false;
-    }
-
-
-
-
-
-    onMount(() => {
-
-        // get current width and height of svg-view div
-        let svgWidth = document.getElementById('svg-view').clientWidth;
-        let svgHeight = document.getElementById('svg-view').clientHeight;
-        window.addEventListener("resize", () => {
-            svgWidth = document.getElementById('svg-view').clientWidth;
-            svgHeight = document.getElementById('svg-view').clientHeight;
-            // restart simulation
-            simulation.force('center', d3.forceCenter(svgWidth / 2, svgHeight / 2));
-            simulation.alpha(1).restart();
-
-        });
-
-        // Add event listeners for panning
-        const svgElement = document.querySelector('svg');
-        svgElement.addEventListener('mousedown', startPanning);
-        window.addEventListener('mousemove', doPanning);
-        window.addEventListener('mouseup', endPanning);
-
-        // get the number of levels in the graph
-        const numberOfLevels = Math.max(...nodesData.map(node => node.level)) + 1;
-
-        simulation = d3.forceSimulation(nodesData)
-            .force('link', d3.forceLink(linksData).id(d => d.id).distance(d => 200))
-            .force('charge', d3.forceManyBody().strength(-1000))
-            .force('collision', d3.forceCollide().radius(100))
-            // .force('center', d3.forceCenter(width / 2, height / 2) * 0.1) 
-            .force('x', d3.forceX().strength(0.1).x(d => {
-                const level = d.level;
-                const levelWidth = svgWidth / numberOfLevels;
-                return levelWidth * level;
-            }))
-
-        simulation.on('tick', () => {
-            nodes.set(nodesData);
-            links.set(linksData);
-        });
-
-        window.addEventListener('mousemove', handleMouseMove);
-        window.addEventListener('mouseup', handleMouseUp);
-    });
-
-    function handleMouseDown(event, node) {
-        event.preventDefault();
-        isDragging = true;
-        draggedNode = node;
-        simulation.alphaTarget(0.3).restart();
-        node.fx = node.x;
-        node.fy = node.y;
-        nodeClicked(node)
-    }
-
-    function handleMouseMove(event) {
-        if (!isDragging || !draggedNode) return;
-        draggedNode.fx += event.movementX;
-        draggedNode.fy += event.movementY;
-    }
-
-    function handleMouseUp() {
-        if (!isDragging || !draggedNode) return;
-        isDragging = false;
-        simulation.alphaTarget(0);
-        draggedNode.fx = null;
-        draggedNode.fy = null;
-        draggedNode = null;
-    }
-
-    function nodeClicked(d) {
-
-        // get the max id + 1
-
-        let maxId = Math.max(...conv.map(o => o.nodeId), 0) + 1;
-
-        newConvData.nodeId = maxId;
-        newConvData.originNodeId = d.id;
-        newConvData.prompt = d.prompt;
-        newConvData.answer = d.answer;
     }
 
 
@@ -234,36 +226,39 @@
 
  <!-- main div is size of screen -->
 <div class="main-page-component">
-    <div class="svg-view" id="svg-view">
+    <div class="graph-view" id="graph-view">
         <svg width="100%" height="100%">
-            {#each $links as link}
+            {#each $reactiveLinks as link}
                 <line x1={link.source.x + svgTransform.x} y1={link.source.y + svgTransform.y} x2={link.target.x + svgTransform.x} y2={link.target.y + svgTransform.y} stroke="black" />
             {/each}
         </svg>
 
         <div>
-            {#each $nodes as node}
+            {#each $reactiveNodes as node}
                 <!-- node component -->
-                <NodeComponent {node} {handleMouseDown} {nodeClicked} {svgTransform}/>
+                <NodeComponent {node} {handleMouseDown} {svgTransform}/>
 
             {/each}
         </div>
     </div>
-    <div class="divider" id="divider"></div> <!-- Draggable Divider -->
-    <div class="form-view">
-        <!-- HTML for adding new conversation data -->
-        <form on:submit|preventDefault={addNewConvData}>
-            <!-- <input bind:value={newConvData.nodeId} placeholder="Resulting Node ID" />
-            <input bind:value={newConvData.originNodeId} placeholder="Origin Node ID" /> -->
-            <textarea class="prompt" bind:value={newConvData.prompt} placeholder="Prompt" />
-            <textarea class="answer" bind:value={newConvData.answer} placeholder="Answer" />
-            <button type="submit">Add to Conversation</button>
-        </form>
+    <div class="conversation-view"> 
+        <div class="conversation-history">
+            <Conversation {conversation} />
+        </div>
+        <div class="form-view">
+            <!-- HTML for adding new conversation data -->
+            <form on:submit|preventDefault={addNewConvData}>
+                <!-- <input bind:value={newConvData.nodeId} placeholder="Resulting Node ID" />
+                <input bind:value={newConvData.originNodeId} placeholder="Origin Node ID" /> -->
+                <textarea class="prompt" bind:value={$convFormData.prompt} placeholder="Prompt" />
+                <button type="submit">Add to Conversation</button>
+            </form>
+        </div>
     </div>
 
     <style>
 
-        /* flex divide between svg-view and form view so that it splits the main-page-component in half on the horizontal axis */
+        /* flex divide between graph-view and form view so that it splits the main-page-component in half on the horizontal axis */
 
         .main-page-component {
             display: flex;
@@ -272,7 +267,7 @@
             width: 100vw;
         }
 
-        .svg-view {
+        .graph-view {
             display: flex;
             flex-direction: column;
             flex: 1;
@@ -283,7 +278,33 @@
             border-radius: 5px;
             padding: 15px;
             margin: 5px;
+            over-flow: hidden;
             
+        }
+
+
+        .conversation-view {
+            display: flex;
+            flex-direction: column;
+            align-items: start; /* Aligns children to the start of the flex container */
+            justify-content: start; 
+            flex: 1;
+            position: relative;
+        }
+
+        .conversation-history {
+            display: flex;
+            flex-direction: column;
+            align-items: start; /* Aligns children to the start of the flex container */
+            justify-content: start; 
+            flex: 4;
+            position: relative;
+            background-color: #f0f0f0;
+            border: 1px solid black;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 5px;
+            width: 100%
         }
 
         .form-view {
@@ -298,6 +319,7 @@
             border-radius: 5px;
             padding: 15px;
             margin: 5px;
+            width: 100%
 
         }
 
