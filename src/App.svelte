@@ -11,7 +11,7 @@
 
 
 
-    let graphData = createGraphData($conversation);
+    let graphData = conversation.createGraphData();
 
     let nodesData = graphData.nodes;
     let linksData = graphData.links;
@@ -128,7 +128,7 @@
 
         // get the max id + 1
 
-        let maxId = Math.max(...($conversation.map(o => o.nodeId)), 0) + 1;
+        let maxId = conversation.getNewMaxId();
 
         convFormData.set({
             nodeId: maxId,
@@ -149,7 +149,7 @@
 
     // Function to update the graph with new conversation data
     function updateGraph() {
-        const updatedGraphData = createGraphData($conversation);
+        const updatedGraphData = conversation.createGraphData();
         nodesData = updatedGraphData.nodes;
         linksData = updatedGraphData.links;
         simulation.nodes(nodesData);
@@ -157,63 +157,6 @@
         simulation.alpha(1).restart();
     }
 
-
-    function createGraphData(conversation) {
-            const nodes = [];
-            const links = [];
-            const nodeSet = new Set();
-
-
-
-            for (const { nodeId, originNodeId, prompt, answer } of conversation) {
-                // Add node if it's not already in the set
-                if (!nodeSet.has(nodeId)) {
-                    nodes.push({ id: nodeId, prompt, answer, level: 0, branchNumber: 0 });
-                    nodeSet.add(nodeId);
-                }
-
-                // Add link
-                if (originNodeId != nodeId) {
-                    links.push({ source: originNodeId, target: nodeId, branchNumber: 0 });
-                }
-            }
-
-            // sort nodes by id
-            nodes.sort((a, b) => a.id - b.id);
-
-            // find all root nodes by finding all nodes that are not targets
-            const roots = nodes.filter(node => !links.find(link => link.target === node.id));
-            
-            for (let root of roots) {
-                root.branchNumber = 0;
-                root.level = 0;
-                const stack = [root];
-                while (stack.length) {
-                    const node = stack.pop();
-                    for (const link of links) {
-                        if (link.source === node.id) {
-
-                            const targetNode = nodes.find(node => node.id === link.target);
-                            targetNode.level = node.level + 1;
-
-
-                            // find all links that have the node as the source
-                            let linksWithNodeAsSource = links.filter(link => link.source === node.id);
-                            // assign a branch number to each link based on the id of the link in the array
-                            linksWithNodeAsSource.forEach((link, index) => {
-                                link.branchNumber = index + 1;
-                            });
-                            // assign the branch number to the target node
-                            targetNode.branchNumber = link.branchNumber;
-
-                            stack.push(targetNode);
-                        }
-                    }
-                }
-            }
-
-            return { nodes, links };
-    }
 
 
 
@@ -243,7 +186,7 @@
     </div>
     <div class="conversation-view"> 
         <div class="conversation-history">
-            <Conversation {conversation} />
+            <Conversation/>
         </div>
         <div class="form-view">
             <!-- HTML for adding new conversation data -->

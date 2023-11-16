@@ -2,30 +2,13 @@
 
 
 <script>
-    import { selectedNode } from "./store.js";
-    export let conversation;
+    import { selectedNode, reactiveNodes } from "./store.js";
     let lineOfConversation = [];
 
-    // Reactive statement to update lineOfConversation whenever selectedNode changes
-    // $: lineOfConversation = getLineOfConversation($selectedNode);
     $: if ($selectedNode) {
-        lineOfConversation = getLineOfConversation($selectedNode);
+        lineOfConversation = reactiveNodes.getLineOfConversation($selectedNode);
     }
 
-    function getLineOfConversation(currentNode) {
-        let line = [];
-        let c = $conversation.find((n) => n.nodeId === currentNode.id);
-        while (c) {
-            line.push(c);
-            c = getParent($conversation, c);
-        }
-        return line;
-    }
-
-    function getParent(conversation, c) {
-        return conversation.find(n => n.nodeId === c.originNodeId && c.originNodeId !== c.nodeId);
-        
-    }
 </script>
 
 <div class="chat-node">
